@@ -246,51 +246,6 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Quick Language Toggle */}
-          {onSelectLanguage && (
-            <div className="flex items-center bg-slate-800/90 border border-slate-700 rounded-xl p-0.5 text-xs font-bold">
-              <button
-                type="button"
-                id="header-lang-ar"
-                onClick={() => onSelectLanguage('ar')}
-                className={`px-2 py-1 rounded-lg text-xs transition cursor-pointer ${
-                  lang === 'ar'
-                    ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
-                    : 'text-slate-300 hover:text-white'
-                }`}
-                title="العربية (الافتراضية)"
-              >
-                عربي
-              </button>
-              <button
-                type="button"
-                id="header-lang-fr"
-                onClick={() => onSelectLanguage('fr')}
-                className={`px-2 py-1 rounded-lg text-xs transition cursor-pointer ${
-                  lang === 'fr'
-                    ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
-                    : 'text-slate-300 hover:text-white'
-                }`}
-                title="Français"
-              >
-                FR
-              </button>
-              <button
-                type="button"
-                id="header-lang-en"
-                onClick={() => onSelectLanguage('en')}
-                className={`px-1.5 py-1 rounded-lg text-xs transition cursor-pointer ${
-                  lang === 'en'
-                    ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
-                    : 'text-slate-300 hover:text-white'
-                }`}
-                title="English"
-              >
-                EN
-              </button>
-            </div>
-          )}
-
           {/* Cart / Pre-Order Button */}
           <button
             id="btn-open-cart"
