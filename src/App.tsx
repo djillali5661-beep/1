@@ -215,13 +215,46 @@ const cacheBannersLocally = (banners: AdBanner[]): void => {
   }
 };
 
-// Immediate cleanup: If existing stored products string is oversized (> 1.5MB), prune it immediately
+const DEMO_PRODUCT_IDS = new Set([
+  'ext-001', 'ext-002', 'ext-003', 'ext-004', 'ext-005', 'ext-006', 'ext-007',
+  'flac-001', 'flac-002', 'flac-003', 'flac-004', 'flac-005', 'flac-006',
+  'acc-001', 'acc-002', 'acc-003', 'acc-004'
+]);
+const DEMO_USER_NAMES = new Set(['karim_oran', 'sofiane_alger', 'blida_rose', '0555998877']);
+
+// Immediate cleanup: Prune demo products, demo accounts, and test orders from client localStorage
 try {
   const existingProductsStr = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-  if (existingProductsStr && existingProductsStr.length > 1.5 * 1024 * 1024) {
+  if (existingProductsStr) {
     const parsed = JSON.parse(existingProductsStr);
     if (Array.isArray(parsed)) {
-      cacheProductsLocally(parsed);
+      const clean = parsed.filter(
+        (p: Product) => p && !DEMO_PRODUCT_IDS.has(p.id) && !p.code?.startsWith('EXT-OUD') && !p.code?.startsWith('FLAC-LUX') && !p.code?.startsWith('ACC-SERT')
+      );
+      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(clean));
+    }
+  }
+  const existingUsersStr = localStorage.getItem(STORAGE_KEYS.CUSTOMER_USERS);
+  if (existingUsersStr) {
+    const parsed = JSON.parse(existingUsersStr);
+    if (Array.isArray(parsed)) {
+      const clean = parsed.filter((u: any) => u && !DEMO_USER_NAMES.has(u.username) && !u.fullName?.toLowerCase().includes('test'));
+      localStorage.setItem(STORAGE_KEYS.CUSTOMER_USERS, JSON.stringify(clean));
+    }
+  }
+  const currCustomerStr = localStorage.getItem(STORAGE_KEYS.CURRENT_CUSTOMER);
+  if (currCustomerStr) {
+    const parsed = JSON.parse(currCustomerStr);
+    if (parsed && (DEMO_USER_NAMES.has(parsed.username) || parsed.fullName?.toLowerCase().includes('test') || parsed.id?.startsWith('app-'))) {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_CUSTOMER);
+    }
+  }
+  const ordersStr = localStorage.getItem(STORAGE_KEYS.ORDERS);
+  if (ordersStr) {
+    const parsed = JSON.parse(ordersStr);
+    if (Array.isArray(parsed)) {
+      const clean = parsed.filter((o: any) => o && o.orderNumber !== 'TEST-001' && !o.customer?.fullName?.toLowerCase().includes('test'));
+      localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(clean));
     }
   }
 } catch {
@@ -238,19 +271,16 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Check if stored data has outdated Extrait format (e.g. price in bulk 500ml instead of 1g unit)
-          const needsExtraitMigration = parsed.some(
-            (p: Product) => p.family === 'Extrait' && (!p.containerSizeG || p.priceDA > 1000)
+          const nonDemo = parsed.filter(
+            (p: Product) => p && !DEMO_PRODUCT_IDS.has(p.id) && !p.code?.startsWith('EXT-OUD') && !p.code?.startsWith('FLAC-LUX') && !p.code?.startsWith('ACC-SERT')
           );
-          if (!needsExtraitMigration) {
-            return parsed;
-          }
+          return nonDemo;
         }
       }
     } catch {
       // fallback
     }
-    return INITIAL_PRODUCTS;
+    return [];
   });
 
   // Rapid Store Access: Display rich loading animation while live catalog synchronizes
@@ -813,7 +843,7 @@ export default function App() {
         }
         lastSyncedServerTimeRef.current = data.lastUpdated || '';
 
-        if (Array.isArray(data.products) && data.products.length > 0) {
+        if (Array.isArray(data.products)) {
           setProducts((prev) => {
             if (prev.length !== data.products.length) return data.products;
             const hasChanged = data.products.some((p, idx) => {
@@ -882,13 +912,8 @@ export default function App() {
               ) {
                 setCurrentCustomer(updated);
               }
-            } else if (
-              curr.id === 'app-001' ||
-              curr.id === 'app-002' ||
-              curr.username === 'karim_oran' ||
-              curr.username === 'sofiane_alger'
-            ) {
-              // Purged demo user -> log out cleanly
+            } else {
+              // Account removed or purged -> log out cleanly
               setCurrentCustomer(null);
             }
           }
@@ -2094,18 +2119,28 @@ export default function App() {
               <Layers className="w-8 h-8" />
             </div>
             <h3 className="text-base font-bold text-slate-800">
-              Aucune matière première ne correspond à vos critères
+              {products.length === 0
+                ? (currentLang === 'ar' ? 'الكتالوج فارغ حالياً' : 'Le catalogue est actuellement vide')
+                : (currentLang === 'ar' ? 'لا توجد منتجات تطابق معايير البحث' : 'Aucune matière première ne correspond à vos critères')}
             </h3>
             <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto mb-4">
-              Vérifiez vos termes de recherche ou réinitialisez les filtres pour afficher l'ensemble des Extraits et Flacons.
+              {products.length === 0
+                ? (currentLang === 'ar'
+                    ? 'يمكن لمدير المتجر إضافة المنتجات أو استيراد ملف إكسل من لوحة التحكم.'
+                    : "L'administrateur peut ajouter des produits ou importer le fichier Excel via le portail de gestion.")
+                : (currentLang === 'ar'
+                    ? 'يرجى التحقق من كلمات البحث أو إعادة ضبط الفلاتر.'
+                    : "Vérifiez vos termes de recherche ou réinitialisez les filtres pour afficher l'ensemble des Extraits et Flacons.")}
             </p>
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition cursor-pointer"
-            >
-              Afficher tout le catalogue
-            </button>
+            {products.length > 0 && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition cursor-pointer"
+              >
+                {currentLang === 'ar' ? 'عرض كافة المنتجات' : 'Afficher tout le catalogue'}
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">

@@ -145,39 +145,65 @@ export function loadDatabase(): ServerDatabase {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.products)) {
-        const DEMO_IDS = ['app-001', 'app-002', 'app-003', 'app-004'];
-        const DEMO_USERNAMES = ['karim_oran', 'sofiane_alger'];
+        const DEMO_PRODUCT_IDS = new Set([
+          'ext-001', 'ext-002', 'ext-003', 'ext-004', 'ext-005', 'ext-006', 'ext-007',
+          'flac-001', 'flac-002', 'flac-003', 'flac-004', 'flac-005', 'flac-006',
+          'acc-001', 'acc-002', 'acc-003', 'acc-004'
+        ]);
+        const DEMO_PRODUCT_CODES = new Set([
+          'EXT-OUD-100G', 'EXT-MUSK-100G', 'EXT-BR540-100G', 'EXT-ROSE-100G', 'EXT-SAN-100G',
+          'EXT-VAN-100G', 'EXT-BERG-100G', 'FLAC-LUX-50', 'FLAC-PREST-100', 'FLAC-ROLL-6',
+          'FLAC-ALU-1000', 'FLAC-ORIENT-12', 'FLAC-TEST-2ML', 'ACC-SERT-1520', 'ACC-PIP-100',
+          'ACC-ENTON-5', 'ACC-MOUIL-500'
+        ]);
+        const DEMO_USER_NAMES = new Set(['karim_oran', 'sofiane_alger', 'blida_rose', '0555998877']);
+
+        // Purge demo customer users
         const cleanUsers = (Array.isArray(parsed.customerUsers) ? parsed.customerUsers : []).filter(
-          (u: any) => !DEMO_IDS.includes(u.id) && !DEMO_USERNAMES.includes(u.username)
-        );
-        const cleanApps = (Array.isArray(parsed.customerApplications) ? parsed.customerApplications : []).filter(
-          (a: any) => !DEMO_IDS.includes(a.id) && !DEMO_USERNAMES.includes(a.assignedUsername)
+          (u: any) =>
+            u &&
+            !DEMO_USER_NAMES.has(u.username) &&
+            !u.fullName?.toLowerCase().includes('test') &&
+            !u.companyName?.toLowerCase().includes('test')
         );
 
-        const migratedProducts = (parsed.products || INITIAL_PRODUCTS).map((p: Product) => {
-          // If Extrait has legacy placeholder or no image, upgrade to official Tulip Extrait picture
-          if (p.family === 'Extrait' && (!p.imageUrl || p.imageUrl.includes('photo-1608571423902') || p.imageUrl.includes('unsplash.com/photo-1594035910387') || p.imageUrl.includes('unsplash.com/photo-1547887537') || p.imageUrl.includes('unsplash.com/photo-1592945403244') || p.imageUrl.includes('unsplash.com/photo-1528722828814') || p.imageUrl.includes('unsplash.com/photo-1595425970377') || p.imageUrl.includes('unsplash.com/photo-1616949755610'))) {
-            return { ...p, imageUrl: '/tulip-extrait-default.jpg' };
-          }
-          return p;
-        });
+        // Purge demo customer applications
+        const cleanApps = (Array.isArray(parsed.customerApplications) ? parsed.customerApplications : []).filter(
+          (a: any) =>
+            a &&
+            !DEMO_USER_NAMES.has(a.assignedUsername) &&
+            !a.fullName?.toLowerCase().includes('test') &&
+            !a.fullName?.toLowerCase().includes('sofiane bensalem') &&
+            !a.fullName?.toLowerCase().includes('parfumeur blida')
+        );
+
+        // Purge demo products
+        const cleanProducts = (parsed.products || []).filter(
+          (p: Product) => p && !DEMO_PRODUCT_IDS.has(p.id) && !DEMO_PRODUCT_CODES.has(p.code)
+        );
+
+        // Purge test orders associated with demo data
+        const cleanOrders = (Array.isArray(parsed.orders) ? parsed.orders : []).filter(
+          (o: any) =>
+            o &&
+            o.orderNumber !== 'TEST-001' &&
+            !o.customer?.fullName?.toLowerCase().includes('test') &&
+            !o.customer?.fullName?.toLowerCase().includes('karim meziani') &&
+            !o.customer?.fullName?.toLowerCase().includes('amina belhadj')
+        );
 
         cachedDb = {
-          products: migratedProducts,
-          orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+          products: cleanProducts,
+          orders: cleanOrders,
           customerApplications: cleanApps,
           customerUsers: cleanUsers,
           adBanners: Array.isArray(parsed.adBanners) ? parsed.adBanners : INITIAL_AD_BANNERS,
           storeSettings: parsed.storeSettings || INITIAL_STORE_SETTINGS,
-          lastUpdated: parsed.lastUpdated || new Date().toISOString(),
+          lastUpdated: new Date().toISOString(),
         };
 
-        // Asynchronously check and compress any oversized images in background
-        setTimeout(() => {
-          if (cachedDb) {
-            optimizeDatabaseImagesAsync(cachedDb).catch(() => {});
-          }
-        }, 500);
+        // Persist the purged clean database immediately
+        persistDatabase(cachedDb);
 
         return cachedDb;
       }
