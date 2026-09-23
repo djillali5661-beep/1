@@ -163,6 +163,72 @@ const loadSavedPreordersForCustomer = (customer: CustomerUser | null): SavedPreo
   return [];
 };
 
+// Safe localStorage setter that never throws, cleans up bloated cache, and handles QuotaExceededError
+const safeSetStorageItem = (key: string, value: string): void => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err: any) {
+    console.warn(`[Storage] Quota notice for key "${key}":`, err?.message || err);
+    try {
+      // Clear non-critical caches to reclaim space
+      localStorage.removeItem('tulip_analytics_events');
+      localStorage.removeItem('tulip_analytics_search_logs');
+      // Retry once after clearing transient logs
+      localStorage.setItem(key, value);
+    } catch {
+      // Gracefully silent: the app functions seamlessly in-memory and on the server
+    }
+  }
+};
+
+const cacheProductsLocally = (products: Product[]): void => {
+  try {
+    // Strip large inline base64 images (>10KB) for the offline localStorage cache to prevent exceeding the browser 5MB quota
+    const sanitized = products.map((p) => {
+      if (p.imageUrl && p.imageUrl.startsWith('data:') && p.imageUrl.length > 10000) {
+        return { ...p, imageUrl: '' };
+      }
+      return p;
+    });
+    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(sanitized));
+  } catch (err: any) {
+    console.warn('[Storage] Quota reached when caching products. Clearing products local cache to prevent crashes:', err?.message || err);
+    try {
+      // If even sanitized fails, remove the key so it doesn't leave corrupted or oversized data
+      localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
+    } catch {}
+  }
+};
+
+const cacheBannersLocally = (banners: AdBanner[]): void => {
+  try {
+    const sanitized = banners.map((b) => {
+      if (b.imageUrl && b.imageUrl.startsWith('data:') && b.imageUrl.length > 10000) {
+        return { ...b, imageUrl: '' };
+      }
+      return b;
+    });
+    localStorage.setItem(STORAGE_KEYS.AD_BANNERS, JSON.stringify(sanitized));
+  } catch (err: any) {
+    console.warn('[Storage] Quota notice when caching banners:', err?.message || err);
+  }
+};
+
+// Immediate cleanup: If existing stored products string is oversized (> 1.5MB), prune it immediately
+try {
+  const existingProductsStr = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
+  if (existingProductsStr && existingProductsStr.length > 1.5 * 1024 * 1024) {
+    const parsed = JSON.parse(existingProductsStr);
+    if (Array.isArray(parsed)) {
+      cacheProductsLocally(parsed);
+    }
+  }
+} catch {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
+  } catch {}
+}
+
 export default function App() {
   // 1. Core State
   const [products, setProducts] = useState<Product[]>(() => {
@@ -668,41 +734,43 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isMainPageLoaded, currentView, isAdPopupEnabled]);
 
-  // Persistence effects
+  // Safe persistence effects
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
+    cacheProductsLocally(products);
   }, [products]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
+    safeSetStorageItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
   }, [orders]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CART, JSON.stringify(cart));
+    safeSetStorageItem(STORAGE_KEYS.CART, JSON.stringify(cart));
   }, [cart]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CUSTOMER_APPLICATIONS, JSON.stringify(customerApplications));
+    safeSetStorageItem(STORAGE_KEYS.CUSTOMER_APPLICATIONS, JSON.stringify(customerApplications));
   }, [customerApplications]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CUSTOMER_USERS, JSON.stringify(customerUsers));
+    safeSetStorageItem(STORAGE_KEYS.CUSTOMER_USERS, JSON.stringify(customerUsers));
   }, [customerUsers]);
 
   useEffect(() => {
     if (currentCustomer) {
-      localStorage.setItem(STORAGE_KEYS.CURRENT_CUSTOMER, JSON.stringify(currentCustomer));
+      safeSetStorageItem(STORAGE_KEYS.CURRENT_CUSTOMER, JSON.stringify(currentCustomer));
     } else {
-      localStorage.removeItem(STORAGE_KEYS.CURRENT_CUSTOMER);
+      try {
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_CUSTOMER);
+      } catch {}
     }
   }, [currentCustomer]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.AD_BANNERS, JSON.stringify(adBanners));
+    cacheBannersLocally(adBanners);
   }, [adBanners]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.AD_POPUP_ENABLED, JSON.stringify(isAdPopupEnabled));
+    safeSetStorageItem(STORAGE_KEYS.AD_POPUP_ENABLED, JSON.stringify(isAdPopupEnabled));
   }, [isAdPopupEnabled]);
 
   // Live Server Database Synchronization (Runs on load and every 15s)
@@ -1140,7 +1208,7 @@ export default function App() {
     setProducts(newProducts);
     const now = new Date().toISOString();
     setLastStockSyncDate(now);
-    localStorage.setItem(STORAGE_KEYS.LAST_SYNC, now);
+    safeSetStorageItem(STORAGE_KEYS.LAST_SYNC, now);
 
     // Persist to server
     syncProductsOnServer(newProducts).catch((err) => console.warn('Sync products error:', err));
@@ -1593,43 +1661,23 @@ export default function App() {
   }) => {
     if (backup.products && Array.isArray(backup.products) && backup.products.length > 0) {
       setProducts(backup.products);
-      try {
-        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(backup.products));
-      } catch (e) {
-        console.error(e);
-      }
+      cacheProductsLocally(backup.products);
     }
     if (backup.orders && Array.isArray(backup.orders)) {
       setOrders(backup.orders);
-      try {
-        localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(backup.orders));
-      } catch (e) {
-        console.error(e);
-      }
+      safeSetStorageItem(STORAGE_KEYS.ORDERS, JSON.stringify(backup.orders));
     }
     if (backup.customerUsers && Array.isArray(backup.customerUsers)) {
       setCustomerUsers(backup.customerUsers);
-      try {
-        localStorage.setItem(STORAGE_KEYS.CUSTOMER_USERS, JSON.stringify(backup.customerUsers));
-      } catch (e) {
-        console.error(e);
-      }
+      safeSetStorageItem(STORAGE_KEYS.CUSTOMER_USERS, JSON.stringify(backup.customerUsers));
     }
     if (backup.customerApplications && Array.isArray(backup.customerApplications)) {
       setCustomerApplications(backup.customerApplications);
-      try {
-        localStorage.setItem(STORAGE_KEYS.CUSTOMER_APPLICATIONS, JSON.stringify(backup.customerApplications));
-      } catch (e) {
-        console.error(e);
-      }
+      safeSetStorageItem(STORAGE_KEYS.CUSTOMER_APPLICATIONS, JSON.stringify(backup.customerApplications));
     }
     if (backup.adBanners && Array.isArray(backup.adBanners)) {
       setAdBanners(backup.adBanners);
-      try {
-        localStorage.setItem(STORAGE_KEYS.AD_BANNERS, JSON.stringify(backup.adBanners));
-      } catch (e) {
-        console.error(e);
-      }
+      cacheBannersLocally(backup.adBanners);
     }
 
     // Persist completely to server database so 15s sync does not revert
