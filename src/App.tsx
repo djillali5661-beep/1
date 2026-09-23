@@ -43,6 +43,7 @@ import { CustomerAuthModal } from './components/CustomerAuthModal';
 import { AdPopupModal } from './components/AdPopupModal';
 import { OrderTrackingModal } from './components/OrderTrackingModal';
 import { QuickOrderView } from './components/QuickOrderView';
+import { ProductSkeletonGrid } from './components/ProductSkeletonGrid';
 import { InterfaceChoiceModal } from './components/InterfaceChoiceModal';
 import { StickyBottomOrderBar } from './components/StickyBottomOrderBar';
 import { LanguageSelectionModal } from './components/LanguageSelectionModal';
@@ -251,6 +252,28 @@ export default function App() {
     }
     return INITIAL_PRODUCTS;
   });
+
+  // Rapid Store Access: Display rich loading animation while live catalog synchronizes
+  const [isCatalogLoading, setIsCatalogLoading] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 5) {
+          return false;
+        }
+      }
+    } catch {}
+    return true;
+  });
+
+  useEffect(() => {
+    // Safety fallback: reveal catalog after at most 2.2 seconds even on slow mobile connections
+    const timer = setTimeout(() => {
+      setIsCatalogLoading(false);
+    }, 2200);
+    return () => clearTimeout(timer);
+  }, []);
 
   const [orders, setOrders] = useState<PreOrder[]>(() => {
     try {
@@ -537,12 +560,12 @@ export default function App() {
     setSavedPreorders(loadSavedPreordersForCustomer(currentCustomer));
   }, [currentCustomer]);
 
-  // Check if interface choice has been made before (first visit experience)
+  // Rapid store entry: default directly to showroom on first visit without blocking modal
   useEffect(() => {
     try {
       const hasChosen = localStorage.getItem(STORAGE_KEYS.INTERFACE_CHOSEN);
       if (!hasChosen) {
-        setIsInterfaceChoiceOpen(true);
+        localStorage.setItem(STORAGE_KEYS.INTERFACE_CHOSEN, 'true');
       }
     } catch (e) {
       console.error(e);
@@ -882,6 +905,10 @@ export default function App() {
         }
       } catch (err) {
         console.warn('[Sync] Server sync notice:', err);
+      } finally {
+        if (isMounted) {
+          setIsCatalogLoading(false);
+        }
       }
     }
 
@@ -1905,6 +1932,7 @@ export default function App() {
           onSelectFamily={setSelectedFamily}
           favorites={favorites}
           onToggleFavorite={handleToggleFavorite}
+          isLoading={isCatalogLoading}
         />
       ) : (
         <>
@@ -2057,8 +2085,10 @@ export default function App() {
           topSellersCount={topSellersCount}
         />
 
-        {/* Product Cards Grid */}
-        {filteredProducts.length === 0 ? (
+        {/* Product Cards Grid or Loading Skeleton */}
+        {isCatalogLoading ? (
+          <ProductSkeletonGrid lang={currentLang} count={8} />
+        ) : filteredProducts.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center my-6">
             <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400">
               <Layers className="w-8 h-8" />

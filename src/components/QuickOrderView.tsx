@@ -37,6 +37,7 @@ interface QuickOrderViewProps {
   onSelectFamily?: (fam: ProductFamily | 'all') => void;
   favorites?: string[];
   onToggleFavorite?: (productId: string) => void;
+  isLoading?: boolean;
 }
 
 export const QuickOrderView: React.FC<QuickOrderViewProps> = ({
@@ -52,6 +53,7 @@ export const QuickOrderView: React.FC<QuickOrderViewProps> = ({
   onSelectFamily: propOnSelectFamily,
   favorites = [],
   onToggleFavorite,
+  isLoading = false,
 }) => {
   const t = translations[lang];
   const isRtl = lang === 'ar';
@@ -307,8 +309,40 @@ export const QuickOrderView: React.FC<QuickOrderViewProps> = ({
           </div>
         </div>
 
-        {/* Empty state */}
-        {filteredProducts.length === 0 ? (
+        {/* Loading Skeleton State */}
+        {isLoading ? (
+          <div className="space-y-4">
+            <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/20 rounded-2xl p-4 flex items-center justify-between shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-600">
+                  <Sparkles className="w-4 h-4 animate-spin" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">
+                    {lang === 'ar' ? 'جاري تحميل وتحديث جدول الأسعار والمخزون...' : 'Chargement de la grille des prix et stocks...'}
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    {lang === 'ar' ? 'يتم الاتصال بقاعدة بيانات Tulip' : 'Connexion en direct avec le serveur Tulip'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden animate-pulse">
+              <div className="p-4 space-y-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="flex items-center justify-between gap-4 py-2 border-b border-slate-100 last:border-0">
+                    <div className="h-4 w-16 bg-slate-200 rounded" />
+                    <div className="h-4 w-44 bg-slate-200 rounded flex-1" />
+                    <div className="h-4 w-20 bg-slate-100 rounded" />
+                    <div className="h-4 w-16 bg-amber-100 rounded" />
+                    <div className="h-8 w-28 bg-slate-200 rounded-xl" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : filteredProducts.length === 0 ? (
           <div className="p-12 text-center text-slate-500 bg-white rounded-2xl border border-slate-200 shadow-xs">
             <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
             <p className="text-sm font-bold text-slate-700">{t.noProductsFound}</p>
