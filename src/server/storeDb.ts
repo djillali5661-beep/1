@@ -23,8 +23,8 @@ export interface ServerDatabase {
 }
 
 const IS_VERCEL = Boolean(process.env.VERCEL);
-const DATA_DIR = IS_VERCEL ? path.join('/tmp', 'tulip-data') : path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'store_db.json');
+const DATA_DIR = process.env.DATA_DIR || (IS_VERCEL ? path.join('/tmp', 'tulip-data') : path.join(process.cwd(), 'data'));
+const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'store_db.json');
 const SEED_FILE = path.join(process.cwd(), 'data', 'store_db.json');
 
 function normalizePhone(phone?: string): string {
@@ -77,11 +77,11 @@ export function loadDatabase(): ServerDatabase {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
 
-    if (IS_VERCEL && !fs.existsSync(DB_FILE) && fs.existsSync(SEED_FILE)) {
+    if (!fs.existsSync(DB_FILE) && fs.existsSync(SEED_FILE) && path.resolve(DB_FILE) !== path.resolve(SEED_FILE)) {
       try {
         fs.copyFileSync(SEED_FILE, DB_FILE);
       } catch (copyErr) {
-        console.warn('[StoreDB] Could not copy seed db on Vercel:', copyErr);
+        console.warn('[StoreDB] Could not copy seed db:', copyErr);
       }
     }
 
