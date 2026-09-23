@@ -192,12 +192,17 @@ export function loadDatabase(): ServerDatabase {
             !o.customer?.fullName?.toLowerCase().includes('amina belhadj')
         );
 
+        const DEMO_BANNER_IDS = new Set(['ad-001', 'ad-002', 'ad-003']);
+        const cleanBanners = (Array.isArray(parsed.adBanners) ? parsed.adBanners : []).filter(
+          (b: any) => b && !DEMO_BANNER_IDS.has(b.id)
+        );
+
         cachedDb = {
           products: cleanProducts,
           orders: cleanOrders,
           customerApplications: cleanApps,
           customerUsers: cleanUsers,
-          adBanners: Array.isArray(parsed.adBanners) ? parsed.adBanners : INITIAL_AD_BANNERS,
+          adBanners: cleanBanners,
           storeSettings: parsed.storeSettings || INITIAL_STORE_SETTINGS,
           lastUpdated: new Date().toISOString(),
         };

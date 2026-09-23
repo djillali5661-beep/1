@@ -20,13 +20,71 @@ export interface SyncDataResponse {
   serverTime: string;
 }
 
-export async function fetchSyncData(): Promise<SyncDataResponse | null> {
+export const OFFLINE_SYNC_CACHE_KEY = 'tulip_offline_sync_snapshot';
+
+export function getCachedSyncData(): SyncDataResponse | null {
+  if (typeof window === 'undefined') return null;
   try {
-    const res = await fetch('/api/sync', { cache: 'no-store' });
+    const raw = localStorage.getItem(OFFLINE_SYNC_CACHE_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn('[Cache] Could not read offline sync cache:', e);
+  }
+  return null;
+}
+
+export function saveCachedSyncData(data: SyncDataResponse): void {
+  if (typeof window === 'undefined' || !data) return;
+  try {
+    // Avoid saving oversized base64 strings into the snapshot
+    const sanitizedProducts = (data.products || []).map((p) => {
+      if (p.imageUrl && p.imageUrl.startsWith('data:image/') && p.imageUrl.length > 200 * 1024) {
+        return { ...p, imageUrl: '/tulip-extrait-default.jpg' };
+      }
+      return p;
+    });
+    const snapshot: SyncDataResponse = {
+      ...data,
+      products: sanitizedProducts,
+    };
+    localStorage.setItem(OFFLINE_SYNC_CACHE_KEY, JSON.stringify(snapshot));
+  } catch (e) {
+    console.warn('[Cache] Could not write offline sync cache:', e);
+  }
+}
+
+export async function fetchSyncData(timeoutMs = 1800): Promise<SyncDataResponse | null> {
+  // If user is explicitly offline, return cached snapshot instantly with 0ms latency
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    const cached = getCachedSyncData();
+    if (cached) return cached;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const res = await fetch('/api/sync', {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    console.warn('[API] fetchSyncData warning:', err);
+    const data: SyncDataResponse = await res.json();
+    saveCachedSyncData(data);
+    return data;
+  } catch (err: any) {
+    clearTimeout(timer);
+    // On slow mobile networks, timeout, or offline: immediately fall back to local snapshot
+    const cached = getCachedSyncData();
+    if (cached) {
+      return cached;
+    }
+    console.warn('[API] fetchSyncData notice (using local state):', err?.message || err);
     return null;
   }
 }

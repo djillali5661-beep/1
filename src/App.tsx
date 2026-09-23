@@ -257,6 +257,14 @@ try {
       localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(clean));
     }
   }
+  const bannersStr = localStorage.getItem(STORAGE_KEYS.AD_BANNERS);
+  if (bannersStr) {
+    const parsed = JSON.parse(bannersStr);
+    if (Array.isArray(parsed)) {
+      const clean = parsed.filter((b: any) => b && !b.id?.startsWith('ad-00'));
+      localStorage.setItem(STORAGE_KEYS.AD_BANNERS, JSON.stringify(clean));
+    }
+  }
 } catch {
   try {
     localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
@@ -283,25 +291,34 @@ export default function App() {
     return [];
   });
 
-  // Rapid Store Access: Display rich loading animation while live catalog synchronizes
+  // Rapid Store Access: Shell mounts instantly, products hydrate from local cache or load smoothly
   const [isCatalogLoading, setIsCatalogLoading] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 5) {
-          return false;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const nonDemo = parsed.filter(
+            (p: Product) => p && !DEMO_PRODUCT_IDS.has(p.id) && !p.code?.startsWith('EXT-OUD') && !p.code?.startsWith('FLAC-LUX') && !p.code?.startsWith('ACC-SERT')
+          );
+          if (nonDemo.length > 0) {
+            return false;
+          }
         }
       }
     } catch {}
+    // If offline, do not stall on skeleton screen
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return false;
+    }
     return true;
   });
 
   useEffect(() => {
-    // Safety fallback: reveal catalog after at most 2.2 seconds even on slow mobile connections
+    // Ultra-fast safety fallback: reveal catalog shell within 800ms
     const timer = setTimeout(() => {
       setIsCatalogLoading(false);
-    }, 2200);
+    }, 800);
     return () => clearTimeout(timer);
   }, []);
 
@@ -474,12 +491,15 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEYS.AD_BANNERS);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const clean = parsed.filter((b: any) => b && !b.id?.startsWith('ad-00'));
+          return clean;
+        }
       }
     } catch (e) {
       console.error(e);
     }
-    return INITIAL_AD_BANNERS;
+    return [];
   });
 
   const [isAdPopupEnabled, setIsAdPopupEnabled] = useState<boolean>(() => {
@@ -495,7 +515,7 @@ export default function App() {
   const [isAdPopupOpen, setIsAdPopupOpen] = useState(false);
   const [currentAdPopup, setCurrentAdPopup] = useState<AdBanner | null>(null);
   const [isOrderTrackingOpen, setIsOrderTrackingOpen] = useState(false);
-  const [isMainPageLoaded, setIsMainPageLoaded] = useState(false);
+  const [isMainPageLoaded, setIsMainPageLoaded] = useState(true);
 
   // Ad banners ref to prevent polling re-triggers from resetting or re-opening the popup
   const adBannersRef = useRef(adBanners);
@@ -734,12 +754,9 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
-  // Main page load trigger: ensure storefront is fully rendered before showing popup
+  // Main page load trigger: storefront is ready immediately
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsMainPageLoaded(true);
-    }, 1200);
-    return () => clearTimeout(timer);
+    setIsMainPageLoaded(true);
   }, []);
 
   // Advertising popup: enforces 15-minute delay across reloads and request submissions
