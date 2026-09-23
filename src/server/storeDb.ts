@@ -66,6 +66,62 @@ function getInitialDatabase(): ServerDatabase {
 }
 
 let cachedDb: ServerDatabase | null = null;
+let isOptimizingImages = false;
+
+async function optimizeBase64Image(dataUrl: string, maxDim = 800, quality = 80): Promise<string> {
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/') || dataUrl.length < 100 * 1024) {
+    return dataUrl;
+  }
+  try {
+    const sharp = require('sharp');
+    const matches = dataUrl.match(/^data:([A-Za-z0-9\-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) return dataUrl;
+    const buffer = Buffer.from(matches[2], 'base64');
+    const optimized = await sharp(buffer)
+      .resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true })
+      .webp({ quality })
+      .toBuffer();
+    return `data:image/webp;base64,${optimized.toString('base64')}`;
+  } catch {
+    return dataUrl;
+  }
+}
+
+export async function optimizeDatabaseImagesAsync(db: ServerDatabase): Promise<void> {
+  if (isOptimizingImages) return;
+  isOptimizingImages = true;
+  try {
+    let changed = false;
+    for (let i = 0; i < db.products.length; i++) {
+      const p = db.products[i];
+      if (p.imageUrl && p.imageUrl.startsWith('data:image/') && p.imageUrl.length > 100 * 1024) {
+        const opt = await optimizeBase64Image(p.imageUrl, 800, 80);
+        if (opt !== p.imageUrl) {
+          p.imageUrl = opt;
+          changed = true;
+        }
+      }
+    }
+    for (let j = 0; j < db.adBanners.length; j++) {
+      const b = db.adBanners[j];
+      if (b.imageUrl && b.imageUrl.startsWith('data:image/') && b.imageUrl.length > 100 * 1024) {
+        const opt = await optimizeBase64Image(b.imageUrl, 1080, 80);
+        if (opt !== b.imageUrl) {
+          b.imageUrl = opt;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      console.log('[StoreDB] Optimized high-resolution images to lightweight WebP.');
+      persistDatabase(db);
+    }
+  } catch (err) {
+    console.warn('[StoreDB] Image optimization notice:', err);
+  } finally {
+    isOptimizingImages = false;
+  }
+}
 
 export function loadDatabase(): ServerDatabase {
   if (cachedDb) {
@@ -115,6 +171,14 @@ export function loadDatabase(): ServerDatabase {
           storeSettings: parsed.storeSettings || INITIAL_STORE_SETTINGS,
           lastUpdated: parsed.lastUpdated || new Date().toISOString(),
         };
+
+        // Asynchronously check and compress any oversized images in background
+        setTimeout(() => {
+          if (cachedDb) {
+            optimizeDatabaseImagesAsync(cachedDb).catch(() => {});
+          }
+        }, 500);
+
         return cachedDb;
       }
     }

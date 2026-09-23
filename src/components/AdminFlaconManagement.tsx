@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Product } from '../types';
 import { formatDZD } from '../utils/pdfGenerator';
+import { compressImage } from '../utils/imageCompressor';
 
 interface AdminFlaconManagementProps {
   products: Product[];
@@ -78,6 +79,8 @@ export const AdminFlaconManagement: React.FC<AdminFlaconManagementProps> = ({
   const [isHidden, setIsHidden] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [isCompressingImage, setIsCompressingImage] = useState<boolean>(false);
+
   const resetForm = () => {
     setName('');
     setCode('');
@@ -126,7 +129,7 @@ export const AdminFlaconManagement: React.FC<AdminFlaconManagementProps> = ({
     handleUpdate(updated);
   };
 
-  const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -135,19 +138,23 @@ export const AdminFlaconManagement: React.FC<AdminFlaconManagementProps> = ({
       return;
     }
 
-    if (file.size > 3 * 1024 * 1024) {
-      setFormError("L'image est trop volumineuse (max 3 Mo).");
-      return;
+    try {
+      setIsCompressingImage(true);
+      setFormError(null);
+      // Automatically compress and resize to web-optimized dimensions (< 60KB WebP)
+      const compressed = await compressImage(file, {
+        maxWidth: 800,
+        maxHeight: 800,
+        quality: 0.82,
+        mimeType: 'image/webp',
+      });
+      setImageUrl(compressed);
+    } catch (err) {
+      console.warn('Compression error:', err);
+      setFormError("Échec de l'optimisation de l'image.");
+    } finally {
+      setIsCompressingImage(false);
     }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (typeof event.target?.result === 'string') {
-        setImageUrl(event.target.result);
-        setFormError(null);
-      }
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -621,13 +628,14 @@ export const AdminFlaconManagement: React.FC<AdminFlaconManagementProps> = ({
                 
                 <div className="flex flex-col sm:flex-row items-center gap-3">
                   {/* File input button */}
-                  <label className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-rose-300 hover:text-rose-200 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition">
-                    <Upload className="w-4 h-4" />
-                    <span>Choisir une photo</span>
+                  <label className={`w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-rose-300 hover:text-rose-200 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition ${isCompressingImage ? 'opacity-70 pointer-events-none' : ''}`}>
+                    <Upload className={`w-4 h-4 ${isCompressingImage ? 'animate-spin' : ''}`} />
+                    <span>{isCompressingImage ? 'Optimisation web...' : 'Choisir une photo'}</span>
                     <input
                       type="file"
                       accept="image/*"
                       onChange={handleImageFileUpload}
+                      disabled={isCompressingImage}
                       className="hidden"
                     />
                   </label>

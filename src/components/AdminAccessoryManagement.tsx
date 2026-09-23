@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Product } from '../types';
 import { formatDZD } from '../utils/pdfGenerator';
+import { compressImage } from '../utils/imageCompressor';
 
 interface AdminAccessoryManagementProps {
   products: Product[];
@@ -74,6 +75,7 @@ export const AdminAccessoryManagement: React.FC<AdminAccessoryManagementProps> =
   const [imageUrl, setImageUrl] = useState('');
   const [isHidden, setIsHidden] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isCompressingImage, setIsCompressingImage] = useState<boolean>(false);
 
   // Generate next recommended reference code (e.g. ACC-001, ACC-002...)
   const generateNextCode = () => {
@@ -123,8 +125,8 @@ export const AdminAccessoryManagement: React.FC<AdminAccessoryManagementProps> =
     setIsModalOpen(true);
   };
 
-  // Image File Upload Handler (Data URL)
-  const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Image File Upload Handler with client-side compression (< 60KB WebP)
+  const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -133,20 +135,22 @@ export const AdminAccessoryManagement: React.FC<AdminAccessoryManagementProps> =
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      setFormError("L'image ne doit pas dépasser 2 Mo.");
-      return;
+    try {
+      setIsCompressingImage(true);
+      setFormError(null);
+      const compressed = await compressImage(file, {
+        maxWidth: 800,
+        maxHeight: 800,
+        quality: 0.82,
+        mimeType: 'image/webp',
+      });
+      setImageUrl(compressed);
+    } catch (err) {
+      console.warn('Compression error:', err);
+      setFormError("Échec de l'optimisation de l'image.");
+    } finally {
+      setIsCompressingImage(false);
     }
-
-    const reader = new FileReader();
-    reader.onload = (uploadEvent) => {
-      const result = uploadEvent.target?.result as string;
-      if (result) {
-        setImageUrl(result);
-        setFormError(null);
-      }
-    };
-    reader.readAsDataURL(file);
   };
 
   // Submit Add or Edit
@@ -789,13 +793,14 @@ export const AdminAccessoryManagement: React.FC<AdminAccessoryManagementProps> =
                 </label>
 
                 <div className="flex flex-col sm:flex-row items-center gap-3">
-                  <label className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-teal-300 hover:text-teal-200 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition">
-                    <Upload className="w-4 h-4" />
-                    <span>Choisir une photo</span>
+                  <label className={`w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-teal-300 hover:text-teal-200 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition ${isCompressingImage ? 'opacity-70 pointer-events-none' : ''}`}>
+                    <Upload className={`w-4 h-4 ${isCompressingImage ? 'animate-spin' : ''}`} />
+                    <span>{isCompressingImage ? 'Optimisation web...' : 'Choisir une photo'}</span>
                     <input
                       type="file"
                       accept="image/*"
                       onChange={handleImageFileUpload}
+                      disabled={isCompressingImage}
                       className="hidden"
                     />
                   </label>

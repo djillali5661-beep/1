@@ -774,6 +774,8 @@ export default function App() {
   }, [isAdPopupEnabled]);
 
   // Live Server Database Synchronization (Runs on load and every 15s)
+  const lastSyncedServerTimeRef = useRef<string>('');
+
   useEffect(() => {
     let isMounted = true;
 
@@ -782,8 +784,21 @@ export default function App() {
         const data = await fetchSyncData();
         if (!isMounted || !data) return;
 
+        // Skip state updates entirely if database has not changed on server
+        if (data.lastUpdated && data.lastUpdated === lastSyncedServerTimeRef.current) {
+          return;
+        }
+        lastSyncedServerTimeRef.current = data.lastUpdated || '';
+
         if (Array.isArray(data.products) && data.products.length > 0) {
-          setProducts(data.products);
+          setProducts((prev) => {
+            if (prev.length !== data.products.length) return data.products;
+            const hasChanged = data.products.some((p, idx) => {
+              const o = prev[idx];
+              return !o || o.id !== p.id || o.stock !== p.stock || o.priceDA !== p.priceDA || o.name !== p.name || o.imageUrl !== p.imageUrl || o.isHidden !== p.isHidden;
+            });
+            return hasChanged ? data.products : prev;
+          });
         }
         if (Array.isArray(data.orders)) {
           const offlineQueue = loadOfflineOrdersQueue();
@@ -797,14 +812,35 @@ export default function App() {
             ];
             setOrders(mergedOrders);
           } else {
-            setOrders(data.orders);
+            setOrders((prev) => {
+              if (prev.length !== data.orders.length) return data.orders;
+              const hasChanged = data.orders.some((o, idx) => {
+                const po = prev[idx];
+                return !po || po.id !== o.id || po.status !== o.status || po.totalDA !== o.totalDA;
+              });
+              return hasChanged ? data.orders : prev;
+            });
           }
         }
         if (Array.isArray(data.customerApplications)) {
-          setCustomerApplications(data.customerApplications);
+          setCustomerApplications((prev) => {
+            if (prev.length !== data.customerApplications.length) return data.customerApplications;
+            const hasChanged = data.customerApplications.some((a, idx) => {
+              const pa = prev[idx];
+              return !pa || pa.id !== a.id || pa.status !== a.status;
+            });
+            return hasChanged ? data.customerApplications : prev;
+          });
         }
         if (Array.isArray(data.customerUsers)) {
-          setCustomerUsers(data.customerUsers);
+          setCustomerUsers((prev) => {
+            if (prev.length !== data.customerUsers.length) return data.customerUsers;
+            const hasChanged = data.customerUsers.some((u, idx) => {
+              const pu = prev[idx];
+              return !pu || pu.id !== u.id || pu.status !== u.status;
+            });
+            return hasChanged ? data.customerUsers : prev;
+          });
           // If current customer is logged in, ensure status is safely synced without re-triggering loop
           const curr = currentCustomerRef.current;
           if (curr) {
@@ -835,7 +871,14 @@ export default function App() {
           }
         }
         if (Array.isArray(data.adBanners)) {
-          setAdBanners(data.adBanners);
+          setAdBanners((prev) => {
+            if (prev.length !== data.adBanners.length) return data.adBanners;
+            const hasChanged = data.adBanners.some((b, idx) => {
+              const pb = prev[idx];
+              return !pb || pb.id !== b.id || pb.isActive !== b.isActive || pb.imageUrl !== b.imageUrl;
+            });
+            return hasChanged ? data.adBanners : prev;
+          });
         }
       } catch (err) {
         console.warn('[Sync] Server sync notice:', err);

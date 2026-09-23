@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AdBanner, Product } from '../types';
+import { compressImage } from '../utils/imageCompressor';
 
 interface AdminAdPopupManagementProps {
   banners: AdBanner[];
@@ -55,6 +56,7 @@ export const AdminAdPopupManagement: React.FC<AdminAdPopupManagementProps> = ({
   const [isActive, setIsActive] = useState(true);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState(false);
+  const [isCompressingImage, setIsCompressingImage] = useState(false);
 
   // Popups Section Slide Carousel Navigation States
   const [slideIndex, setSlideIndex] = useState(0);
@@ -153,27 +155,31 @@ export const AdminAdPopupManagement: React.FC<AdminAdPopupManagementProps> = ({
     setTargetProductIds([]);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setUploadError(null);
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      setUploadError("L'image est trop volumineuse (maximum 5 Mo).");
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Veuillez sélectionner un fichier image valide (JPG, PNG, WebP).');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        setImageUrl(result);
-      }
-    };
-    reader.onerror = () => {
-      setUploadError("Erreur lors de la lecture du fichier image.");
-    };
-    reader.readAsDataURL(file);
+    try {
+      setIsCompressingImage(true);
+      const compressed = await compressImage(file, {
+        maxWidth: 1080,
+        maxHeight: 1080,
+        quality: 0.82,
+        mimeType: 'image/webp',
+      });
+      setImageUrl(compressed);
+    } catch (err) {
+      console.warn('Banner compression error:', err);
+      setUploadError("Erreur lors de l'optimisation de l'image.");
+    } finally {
+      setIsCompressingImage(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -440,15 +446,15 @@ export const AdminAdPopupManagement: React.FC<AdminAdPopupManagementProps> = ({
                 </div>
               ) : (
                 <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-slate-600 hover:border-amber-500 rounded-xl p-5 text-center cursor-pointer transition bg-slate-900/50 hover:bg-slate-900"
+                  onClick={() => !isCompressingImage && fileInputRef.current?.click()}
+                  className={`border-2 border-dashed border-slate-600 hover:border-amber-500 rounded-xl p-5 text-center cursor-pointer transition bg-slate-900/50 hover:bg-slate-900 ${isCompressingImage ? 'opacity-70 pointer-events-none' : ''}`}
                 >
-                  <Upload className="w-7 h-7 mx-auto text-amber-400 mb-2" />
+                  <Upload className={`w-7 h-7 mx-auto text-amber-400 mb-2 ${isCompressingImage ? 'animate-spin' : ''}`} />
                   <div className="font-semibold text-slate-200 text-xs">
-                    Cliquez pour téléverser une affiche / bannière
+                    {isCompressingImage ? 'Optimisation web en cours...' : 'Cliquez pour téléverser une affiche / bannière'}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
-                    Format JPG, PNG, WEBP (Max 5 Mo)
+                    Format JPG, PNG, WEBP (compression automatique)
                   </div>
                 </div>
               )}
