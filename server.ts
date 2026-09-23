@@ -1,4 +1,5 @@
 import express from "express";
+import http from "http";
 import path from "path";
 import dotenv from "dotenv";
 import * as storeDb from "./src/server/storeDb";
@@ -830,10 +831,16 @@ async function sendTelegramAccessRequestNotification(applicant: any) {
       return;
     }
 
+    const server = http.createServer(app);
+
     if (process.env.NODE_ENV !== "production") {
       const { createServer: createViteServer } = await import("vite");
+      const isHmrDisabled = process.env.DISABLE_HMR === 'true';
       const vite = await createViteServer({
-        server: { middlewareMode: true },
+        server: {
+          middlewareMode: true,
+          hmr: isHmrDisabled ? false : { server },
+        },
         appType: "spa",
       });
       app.use(vite.middlewares);
@@ -845,7 +852,7 @@ async function sendTelegramAccessRequestNotification(applicant: any) {
       });
     }
 
-    app.listen(PORT, "0.0.0.0", () => {
+    server.listen(PORT, "0.0.0.0", () => {
       console.log(`Tulip Fragrance Company server running on http://0.0.0.0:${PORT}`);
     });
   }

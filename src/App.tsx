@@ -70,6 +70,8 @@ import {
   restoreAllDataOnServer,
   syncOrdersOnServer,
 } from './utils/api';
+import { idbSaveProducts, idbGetProducts, idbSaveOfflineOrders, idbGetOfflineOrders } from './utils/indexedDb';
+import { prefetchProductImages, getCachedImagesCount } from './utils/imageCache';
 
 const STORAGE_KEYS = {
   PRODUCTS: 'elathir_catalog_products',
@@ -322,6 +324,32 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Hydrate products & offline orders from IndexedDB on startup (unlimited PWA storage)
+  useEffect(() => {
+    let active = true;
+    idbGetProducts().then((idbProducts) => {
+      if (!active || !idbProducts || idbProducts.length === 0) return;
+      setProducts((prev) => {
+        if (prev.length === 0) return idbProducts;
+        return prev;
+      });
+      setIsCatalogLoading(false);
+      prefetchProductImages(idbProducts).then(() => {
+        if (active) getCachedImagesCount().then(setCachedImagesCount).catch(() => {});
+      }).catch(() => {});
+    }).catch(() => {});
+
+    idbGetOfflineOrders().then((idbOrders) => {
+      if (!active || !idbOrders || idbOrders.length === 0) return;
+      setOrders((prev) => {
+        if (prev.length === 0) return idbOrders;
+        return prev;
+      });
+    }).catch(() => {});
+
+    return () => { active = false; };
+  }, []);
+
   const [orders, setOrders] = useState<PreOrder[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.ORDERS);
@@ -403,6 +431,7 @@ export default function App() {
   const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
+  const [cachedImagesCount, setCachedImagesCount] = useState<number>(0);
 
   // 5. Customer Authentication & Application Management State
   const [customerApplications, setCustomerApplications] = useState<CustomerApplication[]>(() => {
@@ -804,13 +833,20 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isMainPageLoaded, currentView, isAdPopupEnabled]);
 
-  // Safe persistence effects
+  // Safe persistence effects & Offline PWA Caching
   useEffect(() => {
     cacheProductsLocally(products);
+    idbSaveProducts(products).catch(() => {});
+    if (products.length > 0) {
+      prefetchProductImages(products).then(() => {
+        getCachedImagesCount().then(setCachedImagesCount).catch(() => {});
+      }).catch(() => {});
+    }
   }, [products]);
 
   useEffect(() => {
     safeSetStorageItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
+    idbSaveOfflineOrders(orders).catch(() => {});
   }, [orders]);
 
   useEffect(() => {
@@ -1028,6 +1064,7 @@ export default function App() {
 
     const handleOffline = () => {
       setIsOnline(false);
+      getCachedImagesCount().then(setCachedImagesCount).catch(() => {});
       setSyncToastMessage(
         currentLang === 'ar'
           ? '📡 وضع عدم الاتصال نشط: يمكنك مواصلة تصفح المنتجات وإجراء الطلبيات بكل حرية.'
@@ -1039,7 +1076,8 @@ export default function App() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Initial check to drain any pending orders
+    // Initial check to count cached images and drain any pending orders
+    getCachedImagesCount().then(setCachedImagesCount).catch(() => {});
     syncOfflineQueueToServer();
 
     return () => {
@@ -1893,6 +1931,8 @@ export default function App() {
         currentInterface={currentInterface}
         onToggleInterface={handleSelectInterface}
         onOpenInterfaceChoiceModal={() => setIsInterfaceChoiceOpen(true)}
+        isOnline={isOnline}
+        cachedImagesCount={cachedImagesCount}
       />
 
       {/* Customer Welcome Back Message Banner */}

@@ -7,6 +7,8 @@ import {
   StoreSettings,
   CustomerAccountStatus,
 } from '../types';
+import { idbSaveSyncSnapshot, idbGetSyncSnapshot, idbSaveProducts } from './indexedDb';
+import { prefetchProductImages } from './imageCache';
 
 export interface SyncDataResponse {
   status: string;
@@ -53,6 +55,14 @@ export function saveCachedSyncData(data: SyncDataResponse): void {
   } catch (e) {
     console.warn('[Cache] Could not write offline sync cache:', e);
   }
+
+  // Persist complete fidelity dataset into IndexedDB (high storage capacity)
+  idbSaveSyncSnapshot(data as any).catch(() => {});
+  if (Array.isArray(data.products)) {
+    idbSaveProducts(data.products).catch(() => {});
+    // Automatically prefetch & cache all product images in background for 100% offline browsing
+    prefetchProductImages(data.products).catch(() => {});
+  }
 }
 
 export async function fetchSyncData(timeoutMs = 1800): Promise<SyncDataResponse | null> {
@@ -60,6 +70,8 @@ export async function fetchSyncData(timeoutMs = 1800): Promise<SyncDataResponse 
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     const cached = getCachedSyncData();
     if (cached) return cached;
+    const idbCached = await idbGetSyncSnapshot();
+    if (idbCached) return idbCached as any;
   }
 
   const controller = new AbortController();
@@ -83,6 +95,10 @@ export async function fetchSyncData(timeoutMs = 1800): Promise<SyncDataResponse 
     const cached = getCachedSyncData();
     if (cached) {
       return cached;
+    }
+    const idbCached = await idbGetSyncSnapshot();
+    if (idbCached) {
+      return idbCached as any;
     }
     console.warn('[API] fetchSyncData notice (using local state):', err?.message || err);
     return null;

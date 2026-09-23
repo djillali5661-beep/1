@@ -13,6 +13,7 @@ import {
   Truck,
   LayoutGrid,
   User,
+  WifiOff,
 } from 'lucide-react';
 import { ProductFamily, StoreSettings, CustomerUser } from '../types';
 import { INITIAL_STORE_SETTINGS } from '../data/initialProducts';
@@ -44,6 +45,8 @@ interface HeaderProps {
   currentInterface?: 'showroom' | 'quick';
   onToggleInterface?: (mode: 'showroom' | 'quick') => void;
   onOpenInterfaceChoiceModal?: () => void;
+  isOnline?: boolean;
+  cachedImagesCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -66,6 +69,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenOrderTracking,
   currentInterface = 'showroom',
   onToggleInterface,
+  isOnline = true,
+  cachedImagesCount = 0,
 }) => {
   const t = translations[lang];
   const isRtl = lang === 'ar';
@@ -91,6 +96,17 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="sticky top-0 z-30 bg-slate-900 border-b border-slate-800 text-white shadow-md transition-all" dir={isRtl ? 'rtl' : 'ltr'}>
+      {/* Offline Status Bar */}
+      {!isOnline && (
+        <div className="bg-amber-500 text-slate-950 px-3 py-1.5 text-xs font-bold flex items-center justify-center gap-2 border-b border-amber-600 shadow-xs">
+          <WifiOff className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+          <span>
+            {isRtl
+              ? `الوضع غير المتصل نشط • الكتالوج والصور (${cachedImagesCount > 0 ? `${cachedImagesCount} صورة محفوظة` : 'جاهزة'}) متاحة للطلب دون إنترنت`
+              : `Mode Hors-Ligne • Catalogue & photos (${cachedImagesCount > 0 ? `${cachedImagesCount} photos en cache` : 'sauvegardées'}) prêts pour vos commandes`}
+          </span>
+        </div>
+      )}
       {/* Main Navbar */}
       <div className="max-w-7xl mx-auto px-3 sm:px-4 py-3 flex items-center justify-between gap-3">
         {/* Brand & Tulip Logo */}

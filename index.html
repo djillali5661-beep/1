@@ -18,28 +18,57 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="preload" href="/tulip-logo.svg" as="image" type="image/svg+xml" />
     <script>
-      // Suppress benign [vite] websocket connection notice when HMR is disabled in AI Studio dev environment
+      // Suppress benign [vite] websocket / dev notices when running inside preview iframe
       (function() {
-        const origError = console.error;
-        const origWarn = console.warn;
-        const isViteHmrNotice = function(args) {
+        var isViteNotice = function(args) {
           try {
-            const msg = args.map(function(a) { return String(a || ''); }).join(' ');
-            return msg.includes('[vite]') && (msg.includes('websocket') || msg.includes('failed to connect') || msg.includes('connecting'));
+            var msg = args.map(function(a) {
+              if (typeof a === 'string') return a;
+              if (a && a.message) return a.message;
+              return String(a || '');
+            }).join(' ');
+            return msg.includes('[vite]') || msg.includes('WebSocket') || msg.includes('vite-plugin-pwa');
           } catch(e) {
             return false;
           }
         };
+
+        var origError = console.error;
         console.error = function() {
           var args = Array.prototype.slice.call(arguments);
-          if (isViteHmrNotice(args)) return;
+          if (isViteNotice(args)) return;
           return origError.apply(console, args);
         };
+
+        var origWarn = console.warn;
         console.warn = function() {
           var args = Array.prototype.slice.call(arguments);
-          if (isViteHmrNotice(args)) return;
+          if (isViteNotice(args)) return;
           return origWarn.apply(console, args);
         };
+
+        var origLog = console.log;
+        console.log = function() {
+          var args = Array.prototype.slice.call(arguments);
+          if (isViteNotice(args)) return;
+          return origLog.apply(console, args);
+        };
+
+        window.addEventListener('error', function(e) {
+          if (e && e.message && (e.message.includes('[vite]') || e.message.includes('WebSocket'))) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(e) {
+          var reason = e && e.reason;
+          var msg = String((reason && (reason.message || reason)) || '');
+          if (msg.includes('[vite]') || msg.includes('WebSocket')) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+          }
+        }, true);
       })();
     </script>
   </head>

@@ -161,11 +161,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               onError={(e) => {
                 const target = e.currentTarget as HTMLImageElement;
                 target.onerror = null;
-                target.src = isExtrait
-                  ? '/tulip-extrait-default.jpg'
-                  : product.family === 'Accessoire'
-                  ? 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600'
-                  : 'https://images.unsplash.com/photo-1523293182086-7651a899d37f?w=600';
+                target.src = '/tulip-extrait-default.jpg';
               }}
             />
             {/* Top gradient shadow for button contrast on bright product photography */}

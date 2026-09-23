@@ -1,17 +1,22 @@
 /**
- * Tulip Fragrance Company - Ultra-Fast PWA & Offline Service Worker
+ * Tulip Fragrance Company - High-Performance PWA & Offline Engine (v4)
+ * 
  * Features:
- * - Instant Cache-First strategy for static assets, scripts, stylesheets, fonts, and images.
- * - Fast Network-First with 1.2s timeout fallback to cache for /api/sync.
- * - Full offline resilience for installable PWA mode.
+ * - Complete Offline Image Caching: All product pictures & brand assets stored in CacheStorage.
+ * - Cache-First image serving with instant fallback to default bottle image if offline.
+ * - Background Product Image Prefetching triggered upon catalog sync.
+ * - Zero-latency API sync fallback for catalog, prices, and stock offline.
+ * - Immediate precached SPA shell delivery.
  */
 
-const CACHE_NAME = 'tulip-pwa-v3';
-const API_CACHE_NAME = 'tulip-api-v3';
+const STATIC_CACHE_NAME = 'tulip-pwa-v4';
+const IMAGE_CACHE_NAME = 'tulip-images-v4';
+const API_CACHE_NAME = 'tulip-api-v4';
 
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
+  '/manifest.json',
   '/tulip-logo.svg',
   '/tulip-extrait-default.jpg',
   '/apple-touch-icon.png',
@@ -20,10 +25,11 @@ const PRECACHE_ASSETS = [
   '/pwa-maskable-512x512.png',
 ];
 
+// 1. Install & Precache core shell assets
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
+    caches.open(STATIC_CACHE_NAME).then((cache) => {
       return cache.addAll(PRECACHE_ASSETS).catch((err) => {
         console.warn('[SW] Precache notice:', err);
       });
@@ -31,12 +37,17 @@ self.addEventListener('install', (event) => {
   );
 });
 
+// 2. Activate & Clean up obsolete caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
-          if (key !== CACHE_NAME && key !== API_CACHE_NAME) {
+          if (
+            key !== STATIC_CACHE_NAME &&
+            key !== IMAGE_CACHE_NAME &&
+            key !== API_CACHE_NAME
+          ) {
             return caches.delete(key);
           }
         })
@@ -45,16 +56,48 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// 3. Background messages: Pre-cache product pictures on demand
+self.addEventListener('message', (event) => {
+  if (!event.data) return;
+
+  if (event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+    return;
+  }
+
+  if (event.data.type === 'CACHE_PRODUCT_IMAGES' && Array.isArray(event.data.urls)) {
+    event.waitUntil(
+      caches.open(IMAGE_CACHE_NAME).then(async (cache) => {
+        for (const url of event.data.urls) {
+          if (!url || typeof url !== 'string' || url.startsWith('data:')) continue;
+          try {
+            const existing = await cache.match(url);
+            if (!existing) {
+              const resp = await fetch(url, { mode: 'no-cors' });
+              if (resp && (resp.ok || resp.type === 'opaque')) {
+                await cache.put(url, resp);
+              }
+            }
+          } catch {
+            // Silently ignore unreachable URLs
+          }
+        }
+      })
+    );
+  }
+});
+
+// 4. Fetch router
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
 
-  // Skip non-GET requests (orders submission, telegram test, etc.)
+  // Skip non-GET requests (e.g. POST orders, POST telegram)
   if (request.method !== 'GET') {
     return;
   }
 
-  // Handle /api/sync with fast 1200ms network timeout -> cached response fallback
+  // A. Handle /api/sync with fast 1200ms network timeout -> cached response fallback
   if (url.pathname === '/api/sync') {
     event.respondWith(
       new Promise((resolve) => {
@@ -64,9 +107,9 @@ self.addEventListener('fetch', (event) => {
           if (!hasResolved) {
             hasResolved = true;
             const apiCache = await caches.open(API_CACHE_NAME);
-            const cachedResponse = await apiCache.match(request);
-            if (cachedResponse) {
-              resolve(cachedResponse);
+            const cached = await apiCache.match(request);
+            if (cached) {
+              resolve(cached);
             }
           }
         }, 1200);
@@ -78,9 +121,7 @@ self.addEventListener('fetch', (event) => {
               hasResolved = true;
               if (networkResponse && networkResponse.ok) {
                 const responseClone = networkResponse.clone();
-                caches.open(API_CACHE_NAME).then((cache) => {
-                  cache.put(request, responseClone);
-                });
+                caches.open(API_CACHE_NAME).then((cache) => cache.put(request, responseClone));
               }
               resolve(networkResponse);
             }
@@ -90,9 +131,9 @@ self.addEventListener('fetch', (event) => {
             if (!hasResolved) {
               hasResolved = true;
               const apiCache = await caches.open(API_CACHE_NAME);
-              const cachedResponse = await apiCache.match(request);
-              if (cachedResponse) {
-                resolve(cachedResponse);
+              const cached = await apiCache.match(request);
+              if (cached) {
+                resolve(cached);
               } else {
                 resolve(
                   new Response(
@@ -108,22 +149,67 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Handle SPA navigation requests (e.g. refresh on any route or offline reload)
+  // B. Handle Product Pictures & All Images: Cache-First with Network & Default Fallback
+  const isImage =
+    request.destination === 'image' ||
+    url.pathname.match(/\.(png|jpg|jpeg|webp|svg|gif|ico|avif)$/i) ||
+    url.hostname.includes('unsplash.com') ||
+    url.hostname.includes('cloudinary.com') ||
+    url.hostname.includes('imgur.com') ||
+    (request.headers.get('accept') && request.headers.get('accept').includes('image/'));
+
+  if (isImage) {
+    event.respondWith(
+      (async () => {
+        const imageCache = await caches.open(IMAGE_CACHE_NAME);
+        const staticCache = await caches.open(STATIC_CACHE_NAME);
+
+        // 1. Check Image Cache & Static Cache first
+        const cached = (await imageCache.match(request)) || (await staticCache.match(request));
+        if (cached) {
+          // Serve from cache immediately
+          return cached;
+        }
+
+        // 2. Fetch from network and save to image cache
+        try {
+          const networkResponse = await fetch(request);
+          if (networkResponse && (networkResponse.ok || networkResponse.type === 'opaque')) {
+            imageCache.put(request, networkResponse.clone());
+          }
+          return networkResponse;
+        } catch (err) {
+          // 3. Offline Fallback: If network fails and image is missing, return precached default bottle
+          const fallback =
+            (await staticCache.match('/tulip-extrait-default.jpg')) ||
+            (await staticCache.match('/tulip-logo.svg'));
+          if (fallback) return fallback;
+          throw err;
+        }
+      })()
+    );
+    return;
+  }
+
+  // C. Handle SPA navigation (app reloads or tab switches while offline)
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.ok) {
             const copy = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+            caches.open(STATIC_CACHE_NAME).then((cache) => cache.put(request, copy));
           }
           return networkResponse;
         })
         .catch(async () => {
-          const cache = await caches.open(CACHE_NAME);
-          const cached = (await cache.match(request)) || (await cache.match('/')) || (await cache.match('/index.html'));
+          const cache = await caches.open(STATIC_CACHE_NAME);
+          const cached =
+            (await cache.match(request)) ||
+            (await cache.match('/')) ||
+            (await cache.match('/index.html'));
           if (cached) return cached;
-          return new Response('<h1>Tulip Fragrance</h1><p>Mode Hors-ligne</p>', {
+          return new Response('<h1>Tulip Fragrance</h1><p>Mode Hors-ligne disponible</p>', {
             headers: { 'Content-Type': 'text/html; charset=utf-8' },
           });
         })
@@ -131,18 +217,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-First strategy for static assets: scripts, styles, images, fonts, svg
+  // D. Handle Static Assets (JS, CSS, Web Fonts)
   const isStaticAsset =
-    url.pathname.match(/\.(js|css|png|jpg|jpeg|svg|webp|woff|woff2|ico|json)$/i) ||
+    url.pathname.match(/\.(js|css|woff|woff2|json)$/i) ||
     url.hostname.includes('fonts.googleapis.com') ||
     url.hostname.includes('fonts.gstatic.com');
 
   if (isStaticAsset) {
     event.respondWith(
-      caches.open(CACHE_NAME).then(async (cache) => {
+      caches.open(STATIC_CACHE_NAME).then(async (cache) => {
         const cached = await cache.match(request);
         if (cached) {
-          // Serve from cache immediately, optionally revalidate in background
+          // Background revalidation
           fetch(request)
             .then((networkResponse) => {
               if (networkResponse && networkResponse.ok) {
@@ -153,7 +239,6 @@ self.addEventListener('fetch', (event) => {
           return cached;
         }
 
-        // Not in cache -> fetch from network and store
         return fetch(request).then((networkResponse) => {
           if (networkResponse && networkResponse.ok) {
             cache.put(request, networkResponse.clone());
@@ -165,10 +250,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Default network fetch with cache fallback
+  // E. General Network Fetch with Cache Fallback
   event.respondWith(
     fetch(request).catch(async () => {
-      const cache = await caches.open(CACHE_NAME);
+      const cache = await caches.open(STATIC_CACHE_NAME);
       return cache.match(request);
     })
   );
